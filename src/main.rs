@@ -8,10 +8,10 @@ mod config;
 
 use self::config::Config;
 use self::config::ConfigReader;
-use cron::Schedule;
 use chrono::prelude::*;
-use jenkins_api::JenkinsBuilder;
+use cron::Schedule;
 use jenkins_api::build::BuildStatus;
+use jenkins_api::JenkinsBuilder;
 use std::time::Duration;
 
 lazy_static! {
@@ -60,8 +60,8 @@ fn main() {
         std::thread::sleep(Duration::from_secs(next_run.1));
         let c = check_job(&next_run.0);
         match c {
-            Ok(_) => { println!("Success!") }
-            Err(_) => { println!("Error!") }
+            Ok(_) => println!("Success!"),
+            Err(_) => println!("Error!"),
         }
     }
 }
