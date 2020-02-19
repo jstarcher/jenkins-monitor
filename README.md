@@ -5,7 +5,7 @@ Ensure Jenkins actually runs jobs when you expect it to and alert you if it did 
 
 ## TODO
 - [x] Connect to Jenkins API
-- [ ] Implement config file
+- [x] Implement config file
 - [ ] Scheduling checks
 - [ ] Sending notification
 - [ ] Get job schedule from Jenkins API
