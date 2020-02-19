@@ -550,8 +550,8 @@ name = "jenkins-monitor"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cron",
  "jenkins_api",
- "job_scheduler",
  "lazy_static",
  "log",
  "serde",
@@ -574,17 +574,6 @@ dependencies = [
  "skeptic",
  "thiserror",
  "urlencoding",
-]
-
-[[package]]
-name = "job_scheduler"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4df2f5492dd06f72121fda4c62266fd9f471af4ea8fd1589b1be9d85e76a8d13"
-dependencies = [
- "chrono",
- "cron",
- "uuid 0.8.1",
 ]
 
 [[package]]
@@ -1129,7 +1118,7 @@ dependencies = [
  "tokio-threadpool",
  "tokio-timer",
  "url 1.7.2",
- "uuid 0.7.4",
+ "uuid",
  "winreg",
 ]
 
@@ -1629,15 +1618,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
 dependencies = [
  "rand 0.6.5",
-]
-
-[[package]]
-name = "uuid"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fde2f6a4bea1d6e007c4ad38c6839fa71cbb63b6dbf5b595aa38dc9b1093c11"
-dependencies = [
- "rand 0.7.3",
 ]
 
 [[package]]

@@ -25,7 +25,7 @@ pub struct ConfigJenkins {
 
 #[derive(Deserialize, Default, Debug)]
 pub struct ConfigJob {
-    pub name: Option<String>,
+    pub name: String,
     pub schedule: String,
 }
 
