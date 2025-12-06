@@ -24,6 +24,10 @@ password = "your-api-token"
 name = "nightly-build"
 # Cron schedule with seconds: "sec min hour day month weekday year"
 # This example: Daily at 2 AM UTC
+# NOTE: This value is now optional. If you omit `schedule`, the monitor
+# will fetch the job's schedule from Jenkins via the job's `config.xml` and
+# use that. Keeping an explicit `schedule` here will override the value
+# pulled from Jenkins.
 schedule = "0 0 2 * * *"
 # Alert if job hasn't run in this many minutes
 alert_threshold_minutes = 90

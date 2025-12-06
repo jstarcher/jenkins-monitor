@@ -32,6 +32,9 @@ password = "your-api-token"
 
 [[job]]
 name = "your-job-name"
+# The `schedule` field is optional — if omitted the monitor will attempt to
+# read the job's cron spec from Jenkins' `config.xml`. An explicit schedule in
+# your `config.toml` will override the value found in Jenkins.
 schedule = "0 0 2 * * *"  # When job should run
 alert_threshold_minutes = 90  # How long to wait before alerting
 
@@ -49,6 +52,7 @@ password = "your-app-password"
 
 1. Checks Jenkins every 60 seconds
 2. Verifies each job ran according to its schedule
+3. Alerts immediately when the job's last build finished with a non-success status (e.g. FAILURE, UNSTABLE)
 3. Sends email alert if a job misses its expected run time
 
 That's it! Simple monitoring, simple alerts. Ship it! 🚢

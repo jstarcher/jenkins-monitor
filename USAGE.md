@@ -53,6 +53,9 @@ Add a `[[job]]` section for each job you want to monitor:
 ```toml
 [[job]]
 name = "my-job-name"
+# The `schedule` field is optional — if omitted the monitor will attempt to
+# read the job's cron spec from Jenkins' `config.xml`. An explicit schedule in
+# your `config.toml` will override the value found in Jenkins.
 schedule = "0 0 2 * * *"  # Daily at 2 AM
 alert_threshold_minutes = 90  # Alert if not run in 90 minutes
 
@@ -170,6 +173,13 @@ sudo systemctl status jenkins-monitor
 ```
 
 ## Understanding Alerts
+
+The monitor will alert in two main cases:
+
+- The job is overdue (it has not run when expected according to its schedule and configured threshold).
+- The job's most recent build finished with a non-success status (e.g. FAILURE, UNSTABLE, ABORTED) — this is treated as an immediate alert condition. If the most recent build is still running (no result yet), it is not considered a failure.
+
+You can tune the alert threshold per-job using `alert_threshold_minutes` in `config.toml`. The scheduler-derived schedule (from Jenkins `config.xml` or the explicit `schedule` in `config.toml`) is used to determine expected run times.
 
 ## Triggering builds from the command line
 

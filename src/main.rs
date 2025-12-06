@@ -57,6 +57,16 @@ struct BuildDetails {
     display_name: String,
 }
 
+// Return true when the build explicitly finished with a non-success result
+// (e.g. FAILURE, UNSTABLE, ABORTED). A `None` result indicates the build is
+// still running and should not be considered a failed build by this check.
+fn is_build_failed(build: &BuildDetails) -> bool {
+    match build.result.as_deref() {
+        Some(r) => r != "SUCCESS",
+        None => false,
+    }
+}
+
 fn get_jenkins_client() -> Client {
     Client::builder()
         .timeout(Duration::from_secs(30))
@@ -132,6 +142,76 @@ fn build_job_api_url(base_url: &str, job_name: &str) -> String {
     url
 }
 
+// Build the URL pointing at a job's `config.xml` endpoint.
+fn build_job_config_url(base_url: &str, job_name: &str) -> String {
+    let mut url = base_url.trim_end_matches('/').to_string();
+
+    for part in job_name.split('/') {
+        let enc = urlencoding::encode(part);
+        url.push_str(&format!("/job/{}", enc));
+    }
+
+    url.push_str("/config.xml");
+    url
+}
+
+// Extract a cron schedule spec from a Jenkins `config.xml` body.
+// Prefer the TimerTrigger-specific <spec> when present; otherwise fall back
+// to the first <spec> element found.
+fn extract_schedule_from_config_xml(body: &str) -> Option<String> {
+    // Prefer <hudson.triggers.TimerTrigger> block
+    if let Some(trigger_pos) = body.find("<hudson.triggers.TimerTrigger") {
+        let sub = &body[trigger_pos..];
+        if let Some(start) = sub.find("<spec>") {
+            if let Some(end) = sub[start + 6..].find("</spec>") {
+                let spec = &sub[start + 6..start + 6 + end];
+                return Some(spec.trim().to_string());
+            }
+        }
+    }
+
+    // fallback: use the first <spec>...</spec> in the document
+    if let Some(start) = body.find("<spec>") {
+        if let Some(end) = body[start + 6..].find("</spec>") {
+            let spec = &body[start + 6..start + 6 + end];
+            return Some(spec.trim().to_string());
+        }
+    }
+
+    None
+}
+
+fn fetch_job_schedule(job_name: &str) -> Result<String> {
+    let client = get_jenkins_client();
+    let url = build_job_config_url(&APP_CONF.jenkins.url, job_name);
+
+    debug!("Fetching job config from: {}", url);
+
+    let response = http_get_with_retries(
+        &client,
+        &url,
+        &APP_CONF.jenkins.username,
+        &APP_CONF.jenkins.password,
+        3,
+        500,
+    )
+    .context("Failed to fetch job config.xml from Jenkins")?;
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "Jenkins config.xml API returned error status: {}",
+            response.status()
+        ));
+    }
+
+    let body = response.text().context("Failed to read config.xml body")?;
+
+    match extract_schedule_from_config_xml(&body) {
+        Some(spec) => Ok(spec),
+        None => Err(anyhow::anyhow!("No schedule <spec> found in job config.xml")),
+    }
+}
+
 fn check_job(job_name: &str, schedule: &Schedule, threshold_minutes: i64) -> Result<bool> {
     let now = Utc::now();
     let client = get_jenkins_client();
@@ -203,6 +283,20 @@ fn check_job(job_name: &str, schedule: &Schedule, threshold_minutes: i64) -> Res
             build.result.as_deref().unwrap_or("RUNNING"),
             minutes_since_build
         );
+        // If the last build completed with a non-success result, treat that
+        // as an immediate alert condition (the user requested simple behavior
+        // to alert on failures). A `None` result means the build is still
+        // running and is not considered a failed build here.
+        if is_build_failed(&build) {
+            warn!(
+                "Job '{}' last build #{} finished with status {:?} — alerting",
+                job_name,
+                build.number,
+                build.result.as_deref().unwrap_or("RUNNING")
+            );
+
+            return Ok(false);
+        }
         
         // Calculate when the job should have run based on the schedule
         let should_have_run = should_job_have_run(schedule, &now, threshold_minutes)?;
@@ -335,6 +429,41 @@ mod build_url_tests {
         let out = build_api_url_from_last_build(raw, cfg).expect("should build url");
         assert_eq!(out, "https://jenkins.local.starcher.dev/job/hourly-tests/1/api/json");
     }
+}
+
+#[cfg(test)]
+mod config_xml_tests {
+        use super::extract_schedule_from_config_xml;
+
+        #[test]
+        fn extract_timer_trigger_spec() {
+                let xml = r#"
+                        <project>
+                            <triggers>
+                                <hudson.triggers.TimerTrigger>
+                                    <spec> 0 0 * * * * </spec>
+                                </hudson.triggers.TimerTrigger>
+                            </triggers>
+                        </project>
+                "#;
+
+                let got = extract_schedule_from_config_xml(xml).expect("should find spec");
+                assert_eq!(got, "0 0 * * * *");
+        }
+
+        #[test]
+        fn fallback_first_spec() {
+                let xml = r#"
+                        <project>
+                            <scm>
+                                <spec>H/15 * * * *</spec>
+                            </scm>
+                        </project>
+                "#;
+
+                let got = extract_schedule_from_config_xml(xml).expect("should find spec");
+                assert_eq!(got, "H/15 * * * *");
+        }
 }
 
 #[cfg(test)]
@@ -514,11 +643,25 @@ fn monitor_jobs() {
     info!("Starting job monitoring cycle...");
     
     for job_config in &APP_CONF.job {
-        let schedule = match Schedule::from_str(&job_config.schedule) {
+        // Determine the cron spec string. Prefer an explicit schedule from
+        // the config.toml; otherwise try to fetch the job's schedule from
+        // Jenkins' config.xml.
+        let schedule_str = if let Some(s) = &job_config.schedule {
+            s.clone()
+        } else {
+            match fetch_job_schedule(&job_config.name) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to determine schedule for job '{}': {:#}", job_config.name, e);
+                    continue;
+                }
+            }
+        };
+
+        let schedule = match Schedule::from_str(&schedule_str) {
             Ok(s) => s,
             Err(e) => {
-                error!("Invalid cron schedule '{}' for job '{}': {}", 
-                    job_config.schedule, job_config.name, e);
+                error!("Invalid cron schedule '{}' for job '{}': {}", schedule_str, job_config.name, e);
                 continue;
             }
         };
@@ -530,7 +673,7 @@ fn monitor_jobs() {
                         "Job hasn't run within expected schedule. \
                         Expected schedule: {}\n\
                         Alert threshold: {} minutes",
-                        job_config.schedule, job_config.alert_threshold_minutes
+                        schedule_str, job_config.alert_threshold_minutes
                     );
                     
                     if let Err(e) = send_email_alert(&job_config.name, &message) {
@@ -589,7 +732,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::build_job_api_url;
+    use super::{build_job_api_url, build_job_config_url};
 
     #[test]
     fn builds_top_level_job_url() {
@@ -605,5 +748,52 @@ mod tests {
         let job = "folder/subfolder/nightly build"; // space to ensure encoding
         let got = build_job_api_url(base, job);
         assert_eq!(got, "https://jenkins.example.com/job/folder/job/subfolder/job/nightly%20build/api/json");
+    }
+
+    #[test]
+    fn builds_top_level_config_url() {
+        let base = "https://jenkins.example.com/";
+        let job = "nightly-build";
+        let got = build_job_config_url(base, job);
+        assert_eq!(got, "https://jenkins.example.com/job/nightly-build/config.xml");
+    }
+
+    #[test]
+    fn builds_nested_config_url() {
+        let base = "https://jenkins.example.com";
+        let job = "folder/subfolder/nightly build"; // space to ensure encoding
+        let got = build_job_config_url(base, job);
+        assert_eq!(got, "https://jenkins.example.com/job/folder/job/subfolder/job/nightly%20build/config.xml");
+    }
+
+    #[test]
+    fn build_failed_detection() {
+        let b = super::BuildDetails {
+            number: 42,
+            timestamp: 0,
+            result: Some("FAILURE".to_string()),
+            display_name: "#42".to_string(),
+        };
+
+        assert!(super::is_build_failed(&b));
+
+        let s = super::BuildDetails {
+            number: 43,
+            timestamp: 0,
+            result: Some("SUCCESS".to_string()),
+            display_name: "#43".to_string(),
+        };
+
+        assert!(!super::is_build_failed(&s));
+
+        let r = super::BuildDetails {
+            number: 44,
+            timestamp: 0,
+            result: None,
+            display_name: "#44".to_string(),
+        };
+
+        // running builds (None) are not treated as failures
+        assert!(!super::is_build_failed(&r));
     }
 }

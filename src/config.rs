@@ -32,7 +32,9 @@ pub struct ConfigJenkins {
 #[derive(Deserialize, Debug, Clone)]
 pub struct ConfigJob {
     pub name: String,
-    pub schedule: String,
+    // Optional: if not provided here the monitor will fetch the job's
+    // schedule (cron spec) from the job's Jenkins `config.xml` automatically.
+    pub schedule: Option<String>,
     #[serde(default = "default_alert_threshold")]
     pub alert_threshold_minutes: i64,
     // Optional per-job override of whether to alert when check_job() returns an error

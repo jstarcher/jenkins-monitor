@@ -15,6 +15,7 @@ Jenkins Monitor is a lightweight monitoring tool designed to verify that your Je
 ### Available in MVP
 - ✅ **Schedule Monitoring**: Define expected job schedules using cron expressions
 - ✅ **Missed Job Detection**: Automatically detect when jobs don't run as expected
+- ✅ **Build Failure Alerts**: If a job's last build completed with a non-success status (e.g. FAILURE, UNSTABLE, ABORTED) the monitor will alert immediately
 - ✅ **Email Alerts**: Send notifications via SMTP when jobs miss their schedule
 - ✅ **Multiple Job Support**: Monitor multiple jobs across one Jenkins instance
 - ✅ **Low Resource Usage**: Written in Rust for performance and reliability
@@ -58,6 +59,9 @@ password = "your-api-token-here"
 
 [[job]]
 name = "nightly-build"
+# The `schedule` field is optional — if omitted the monitor will attempt to
+# read the job's cron spec from Jenkins' `config.xml`. An explicit schedule in
+# your `config.toml` will override the value found in Jenkins.
 schedule = "0 0 2 * * *"  # Daily at 2 AM UTC (cron format with seconds)
 alert_threshold_minutes = 90  # Alert if job hasn't run in 90 minutes
 
