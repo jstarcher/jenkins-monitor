@@ -17,9 +17,19 @@ use serde::Deserialize;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
+#[cfg(test)]
+use std::sync::Mutex;
 
 lazy_static! {
     static ref APP_CONF: Config = ConfigReader::make();
+}
+
+// Test-only capture for outgoing emails. Kept as a separate lazy_static so the
+// main lazy_static expansion doesn't try to include a cfg-gated item during
+// non-test builds (which breaks release builds).
+#[cfg(test)]
+lazy_static! {
+    static ref TEST_SENT_EMAILS: Mutex<Vec<String>> = Mutex::new(vec![]);
 }
 
 #[derive(Deserialize, Debug)]
@@ -54,6 +64,59 @@ fn get_jenkins_client() -> Client {
         .expect("Failed to create HTTP client")
 }
 
+/// Perform a blocking GET request with retries and exponential backoff.
+///
+/// - `max_attempts`: maximum number of attempts (>=1)
+/// - `base_delay_ms`: initial delay in milliseconds between attempts; delay doubles each retry
+fn http_get_with_retries(
+    client: &Client,
+    url: &str,
+    username: &str,
+    password: &str,
+    max_attempts: usize,
+    base_delay_ms: u64,
+) -> Result<reqwest::blocking::Response> {
+    if max_attempts == 0 {
+        return Err(anyhow::anyhow!("max_attempts must be >= 1"));
+    }
+
+    let mut attempt = 0usize;
+    let mut delay = Duration::from_millis(base_delay_ms);
+
+    loop {
+        attempt += 1;
+
+        let res = client
+            .get(url)
+            .basic_auth(username, Some(password))
+            .send();
+
+        match res {
+            Ok(resp) => {
+                // If server error (5xx) we may want to retry
+                if resp.status().is_server_error() && attempt < max_attempts {
+                    debug!("Request to {} returned server error {} (attempt {}) - retrying after {:?}", url, resp.status(), attempt, delay);
+                    thread::sleep(delay);
+                    delay = delay.checked_mul(2u32).unwrap_or(delay);
+                    continue;
+                }
+
+                return Ok(resp);
+            }
+            Err(e) => {
+                if attempt >= max_attempts {
+                    return Err(anyhow::anyhow!("request failed after {} attempts: {}", attempt, e));
+                }
+
+                debug!("Request to {} failed (attempt {}): {} - retrying after {:?}", url, attempt, e, delay);
+                thread::sleep(delay);
+                delay = delay.checked_mul(2u32).unwrap_or(delay);
+                continue;
+            }
+        }
+    }
+}
+
 // Build a Jenkins job API URL that supports nested job paths
 // Jenkins expects nested jobs to use repeated `/job/{name}` segments,
 // e.g. for "folder/subfolder/jobname" => /job/folder/job/subfolder/job/jobname/api/json
@@ -77,11 +140,16 @@ fn check_job(job_name: &str, schedule: &Schedule, threshold_minutes: i64) -> Res
     
     debug!("Fetching job info from: {}", job_url);
     
-    let response = client
-        .get(&job_url)
-        .basic_auth(&APP_CONF.jenkins.username, Some(&APP_CONF.jenkins.password))
-        .send()
-        .context("Failed to fetch job info from Jenkins")?;
+    // Try with retries/backoff in case of transient network failures
+    let response = http_get_with_retries(
+        &client,
+        &job_url,
+        &APP_CONF.jenkins.username,
+        &APP_CONF.jenkins.password,
+        3,
+        500,
+    )
+    .context("Failed to fetch job info from Jenkins")?;
     
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
@@ -102,11 +170,15 @@ fn check_job(job_name: &str, schedule: &Schedule, threshold_minutes: i64) -> Res
 
         debug!("Fetching build details from: {}", build_url);
         
-        let build_response = client
-            .get(&build_url)
-            .basic_auth(&APP_CONF.jenkins.username, Some(&APP_CONF.jenkins.password))
-            .send()
-            .context("Failed to fetch build details")?;
+        let build_response = http_get_with_retries(
+            &client,
+            &build_url,
+            &APP_CONF.jenkins.username,
+            &APP_CONF.jenkins.password,
+            3,
+            500,
+        )
+        .context("Failed to fetch build details")?;
         
         if !build_response.status().is_success() {
             return Err(anyhow::anyhow!(
@@ -265,6 +337,79 @@ mod build_url_tests {
     }
 }
 
+#[cfg(test)]
+mod http_retry_tests {
+    use super::*;
+    use mockito::{mock, server_url};
+
+    #[test]
+    fn http_get_retries_and_succeeds() {
+        let _m1 = mock("GET", "/retry")
+            .with_status(500)
+            .expect(2)
+            .create();
+
+        let _m2 = mock("GET", "/retry")
+            .with_status(200)
+            .with_body("{\"ok\":true}")
+            .create();
+
+        let client = get_jenkins_client();
+        let url = format!("{}/retry", server_url());
+        let resp = http_get_with_retries(&client, &url, "", "", 3, 1).expect("should succeed after retries");
+        assert!(resp.status().is_success());
+    }
+
+    #[test]
+    fn http_get_fails_after_max_attempts() {
+        let _m = mock("GET", "/always500").with_status(500).expect(3).create();
+
+        let client = get_jenkins_client();
+        let url = format!("{}/always500", server_url());
+        let res = http_get_with_retries(&client, &url, "", "", 3, 1);
+        assert!(res.is_ok());
+        // The returned response should be the last server error (500)
+        let r = res.unwrap();
+        assert_eq!(r.status().as_u16(), 500);
+    }
+}
+
+#[cfg(test)]
+mod alert_tests {
+    use super::*;
+    use anyhow::anyhow;
+
+    #[test]
+    fn format_check_error_alert_includes_job_and_error() {
+        let err = anyhow!("network timeout").context("Failed to fetch job info from Jenkins");
+        let msg = format_check_error_alert("nightly-build", &err);
+
+        assert!(msg.contains("nightly-build"));
+        assert!(msg.contains("network timeout"));
+        assert!(msg.contains("Failed to fetch job info from Jenkins"));
+    }
+}
+
+#[cfg(test)]
+mod email_capture_tests {
+    use super::*;
+
+    #[test]
+    fn send_email_alert_is_captured_in_tests() {
+        // ensure the test capture vector is empty first
+        TEST_SENT_EMAILS.lock().unwrap().clear();
+
+        let msg = "Simulated failure";
+        let res = send_email_alert("integration-tests", msg);
+        assert!(res.is_ok());
+
+        let emails = TEST_SENT_EMAILS.lock().unwrap();
+        assert!(!emails.is_empty());
+        assert!(emails[0].contains("integration-tests"));
+        assert!(emails[0].contains(msg));
+    }
+}
+
 fn should_job_have_run(schedule: &Schedule, now: &DateTime<Utc>, threshold_minutes: i64) -> Result<bool> {
     // Get the last scheduled time for this job
     let lookback = *now - chrono::Duration::minutes(threshold_minutes);
@@ -280,6 +425,25 @@ fn should_job_have_run(schedule: &Schedule, now: &DateTime<Utc>, threshold_minut
 
 fn send_email_alert(job_name: &str, message: &str) -> Result<()> {
     if let Some(email_config) = &APP_CONF.email {
+        // During unit/integration tests we capture outgoing email bodies into a
+        // test-only in-memory vector so tests can assert that an email would
+        // have been sent without needing a real SMTP server.
+        #[cfg(test)]
+        {
+            let email_body = format!(
+                "Jenkins Monitor Alert\n\nJob: {}\n\n{}\n\nTime: {}\nJenkins URL: {}\n",
+                job_name,
+                message,
+                Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+                APP_CONF.jenkins.url
+            );
+
+            TEST_SENT_EMAILS.lock().unwrap().push(email_body);
+            return Ok(());
+        }
+
+        #[cfg(not(test))]
+        {
         let email_body = format!(
             "Jenkins Monitor Alert\n\n\
             Job: {}\n\n\
@@ -320,10 +484,21 @@ fn send_email_alert(job_name: &str, message: &str) -> Result<()> {
             }
             Err(e) => Err(anyhow::anyhow!("Failed to send email: {}", e)),
         }
+        }
     } else {
         warn!("Email not configured, skipping alert for job '{}'", job_name);
         Ok(())
     }
+}
+
+/// Format an alert message for a failed job check. We keep the message
+/// concise since `send_email_alert` will wrap it into a larger email body.
+fn format_check_error_alert(job_name: &str, error: &anyhow::Error) -> String {
+    format!(
+        "Failed to verify job '{}'. Error details:\n\n{}\n\nCheck the monitor logs for the full error chain.",
+        job_name,
+        format!("{:#}", error)
+    )
 }
 
 fn monitor_jobs() {
@@ -358,6 +533,21 @@ fn monitor_jobs() {
                 // Use pretty debug formatting to include the error chain and contexts
                 // so logs show the root cause (eg. URL parse error, HTTP status, etc.)
                 error!("Error checking job '{}' : {:#}", job_config.name, e);
+
+                // Convert the error into a user-facing alert message and try to
+                // send an alert email (if configured). This ensures that
+                // transient network failures like a timeout trigger an alert.
+                let should_alert = job_config.alert_on_error
+                    .unwrap_or(APP_CONF.general.alert_on_check_error);
+
+                if should_alert {
+                    let message = format_check_error_alert(&job_config.name, &e);
+                    if let Err(send_err) = send_email_alert(&job_config.name, &message) {
+                        error!("Failed to send alert for job '{}': {}", job_config.name, send_err);
+                    }
+                } else {
+                    debug!("Alert-on-error disabled for job '{}' (global: {}) — not sending alert", job_config.name, APP_CONF.general.alert_on_check_error);
+                }
             }
         }
     }

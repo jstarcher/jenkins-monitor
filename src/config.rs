@@ -14,6 +14,8 @@ pub struct ConfigGeneral {
     pub log_level: String,
     #[serde(default = "default_check_interval")]
     pub check_interval_seconds: u64,
+    #[serde(default = "default_alert_on_check_error")]
+    pub alert_on_check_error: bool,
 }
 
 fn default_check_interval() -> u64 {
@@ -33,10 +35,16 @@ pub struct ConfigJob {
     pub schedule: String,
     #[serde(default = "default_alert_threshold")]
     pub alert_threshold_minutes: i64,
+    // Optional per-job override of whether to alert when check_job() returns an error
+    pub alert_on_error: Option<bool>,
 }
 
 fn default_alert_threshold() -> i64 {
     60
+}
+
+fn default_alert_on_check_error() -> bool {
+    true
 }
 
 #[derive(Deserialize, Debug, Clone)]
