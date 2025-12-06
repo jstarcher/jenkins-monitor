@@ -1,1 +1,3 @@
-v0.1.0
+Release v0.1.0
+
+Assets produced by CI are attached in the GitHub release after the tag is pushed.
