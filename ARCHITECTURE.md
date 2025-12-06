@@ -131,6 +131,8 @@ For each monitored job:
 - `/job/{name}/api/json` - Job details
 - `/job/{name}/lastBuild/api/json` - Last build info
 - `/job/{name}/builds/api/json` - Build history
+  
+Note: Jobs that live inside Jenkins folders are supported by using slash-separated paths in the configuration, e.g. `folder/subfolder/jobname` will be translated into `/job/folder/job/subfolder/job/jobname/api/json`.
 
 **Error Handling**:
 - Network timeouts

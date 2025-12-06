@@ -55,6 +55,14 @@ Add a `[[job]]` section for each job you want to monitor:
 name = "my-job-name"
 schedule = "0 0 2 * * *"  # Daily at 2 AM
 alert_threshold_minutes = 90  # Alert if not run in 90 minutes
+
+Note: If your Jenkins job is inside one or more folders, specify the path with forward slashes. For example:
+
+```toml
+[[job]]
+name = "folder/subfolder/my-job-name"
+```
+The monitor will translate this into the Jenkins API path `/job/folder/job/subfolder/job/my-job-name/api/json`.
 ```
 
 #### Understanding Cron Schedule Format
@@ -163,6 +171,54 @@ sudo systemctl status jenkins-monitor
 
 ## Understanding Alerts
 
+## Triggering builds from the command line
+
+For convenience there's a small script included at `scripts/build_jenkins_jobs.sh` that triggers builds for the example jobs used in this repository.
+
+Default jobs triggered:
+- `nightly-build`
+- `hourly-tests`
+- `integration-tests`
+
+Usage (recommended):
+
+```bash
+# Provide your Jenkins base URL, username and API token using environment variables
+JENKINS_URL=https://jenkins.example.com \
+JENKINS_USER=your-user \
+JENKINS_TOKEN=your-token \
+./scripts/build_jenkins_jobs.sh
+```
+
+You can also pass specific job names on the command-line instead of the defaults:
+
+```bash
+JENKINS_URL=... JENKINS_USER=... JENKINS_TOKEN=... \
+./scripts/build_jenkins_jobs.sh "folder/subjob/one" "another-job"
+```
+
+Notes:
+- The script supports foldered job paths using slash-separated names (e.g. `team/nightly-build`).
+- By default the script performs real POSTs. Use `DRY_RUN=1` to only print what would be done.
+- The script attempts to obtain a Jenkins crumb (CSRF token) automatically and will include it when required.
+
+Creating missing jobs
+----------------------
+
+If a monitored job doesn't exist, `scripts/build_jenkins_jobs.sh` can create a minimal test job (and any missing folders) before triggering a build. This is useful when you're setting up a test Jenkins instance.
+
+Important:
+- The Jenkins user you supply must have permissions to create jobs and folders (usually admin or job-creation privileges).
+- The script assumes the Jenkins instance has the CloudBees Folder plugin if you use foldered jobs (most modern Jenkins installations provide folder support).
+
+If the script detects a missing job it will:
+1. Create any missing folders in the path
+2. Create a simple pipeline job that echoes the job name
+3. Trigger a build of the newly-created job
+
+Use `DRY_RUN=1` to preview the actions without making any network requests.
+
+
 ### When Alerts Are Sent
 
 An alert is sent when:
@@ -238,6 +294,7 @@ Make sure `config.toml` is in the same directory where you're running the comman
 - Verify your username and password/API token
 - Ensure the job name matches exactly (case-sensitive)
 - Check that your Jenkins user has permission to view the jobs
+ - If your job lives in folders use a slash-separated path (e.g. `folder/subfolder/job`); the monitor converts these into the required `/job/.../api/json` path
 
 ### "Failed to send email"
 

@@ -17,6 +17,9 @@ password = "your-api-token"
 
 # Define jobs to monitor
 # You can add as many [[job]] sections as needed
+#
+# If your job is inside Jenkins folders, use a slash-separated path for `name`:
+# name = "folder/subfolder/job-name"
 [[job]]
 name = "nightly-build"
 # Cron schedule with seconds: "sec min hour day month weekday year"
