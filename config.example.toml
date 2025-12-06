@@ -45,6 +45,9 @@ alert_threshold_minutes = 250
 [email]
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
+# Enable STARTTLS to upgrade the SMTP connection to use TLS. Set to false to
+# force an unencrypted connection (not recommended).
+smtp_tls = true
 from = "jenkins-monitor@example.com"
 to = ["ops-team@example.com", "admin@example.com"]
 # SMTP authentication (optional, but usually required)

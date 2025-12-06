@@ -70,6 +70,9 @@ alert_threshold_minutes = 75  # Alert if job hasn't run in 75 minutes
 [email]
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
+# Enable STARTTLS to upgrade the SMTP connection to TLS. Set to false to
+# use an unencrypted connection (not recommended).
+smtp_tls = true
 from = "jenkins-monitor@example.com"
 to = ["ops-team@example.com", "admin@example.com"]
 username = "your-email@gmail.com"

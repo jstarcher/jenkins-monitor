@@ -467,8 +467,17 @@ fn send_email_alert(job_name: &str, message: &str) -> Result<()> {
         
         let email = email_builder.body(email_body)?;
         
-        let mut mailer_builder = SmtpTransport::relay(&email_config.smtp_host)?
-            .port(email_config.smtp_port);
+        // Allow TLS to be enabled/disabled by configuration. By default config
+        // has TLS enabled (smtp_tls = true) and we'll attempt to use STARTTLS
+        // to upgrade the connection. When disabled we create an unencrypted
+        // builder (builder_dangerous) so callers can opt-out of TLS.
+        let mut mailer_builder = if email_config.smtp_tls {
+            SmtpTransport::starttls_relay(&email_config.smtp_host)?
+        } else {
+            SmtpTransport::builder_dangerous(&email_config.smtp_host)
+        };
+
+        mailer_builder = mailer_builder.port(email_config.smtp_port);
         
         if let (Some(username), Some(password)) = (&email_config.username, &email_config.password) {
             let creds = Credentials::new(username.clone(), password.clone());
