@@ -10,29 +10,36 @@ Ensure Jenkins actually runs jobs when you expect it to and alert you if it did 
 
 Jenkins Monitor is a lightweight monitoring tool designed to verify that your Jenkins jobs execute on their expected schedules. It proactively alerts you when jobs fail to run, helping you catch scheduling issues, configuration problems, or Jenkins infrastructure failures before they impact your development workflow.
 
-## 🎯 Features (Planned)
+## 🎯 Features
 
-- **Schedule Monitoring**: Define expected job schedules using cron expressions
-- **Missed Job Detection**: Automatically detect when jobs don't run as expected
-- **Multi-Channel Alerts**: Send notifications via Email, Slack, PagerDuty, or custom webhooks
-- **Multiple Jenkins Support**: Monitor jobs across multiple Jenkins instances
-- **Low Resource Usage**: Written in Rust for performance and reliability
-- **Flexible Configuration**: TOML/YAML/JSON configuration support
-- **Metrics Export**: Prometheus-compatible metrics for Grafana dashboards
-- **Docker Ready**: Easy deployment with Docker and Kubernetes
+### Available in MVP
+- ✅ **Schedule Monitoring**: Define expected job schedules using cron expressions
+- ✅ **Missed Job Detection**: Automatically detect when jobs don't run as expected
+- ✅ **Email Alerts**: Send notifications via SMTP when jobs miss their schedule
+- ✅ **Multiple Job Support**: Monitor multiple jobs across one Jenkins instance
+- ✅ **Low Resource Usage**: Written in Rust for performance and reliability
+- ✅ **TOML Configuration**: Simple configuration file format
+
+### Planned Features
+- 🔜 **Multi-Channel Alerts**: Slack, PagerDuty, webhooks, and other notification channels
+- 🔜 **Multiple Jenkins Support**: Monitor jobs across multiple Jenkins instances
+- 🔜 **Metrics Export**: Prometheus-compatible metrics for Grafana dashboards
+- 🔜 **Docker Ready**: Easy deployment with Docker and Kubernetes
+- 🔜 **Database Persistence**: Alert history and state tracking
 
 ## 🚀 Quick Start
 
-> **Note**: This project is currently in the planning phase. The quick start guide below reflects the intended usage once development is complete.
+**⚡ Want to get started fast?** See [QUICKSTART.md](QUICKSTART.md) for a 5-minute guide.
 
 ### Installation
 
 ```bash
-# Install from source (requires Rust)
-cargo install jenkins-monitor
+# Build from source (requires Rust)
+git clone https://github.com/jstarcher/jenkins-monitor.git
+cd jenkins-monitor
+cargo build --release
 
-# Or use Docker
-docker pull jstarcher/jenkins-monitor:latest
+# The binary will be at target/release/jenkins-monitor
 ```
 
 ### Basic Configuration
@@ -40,34 +47,43 @@ docker pull jstarcher/jenkins-monitor:latest
 Create a `config.toml` file:
 
 ```toml
+[general]
+log_level = "info"
+check_interval_seconds = 60
+
 [jenkins]
 url = "https://jenkins.example.com"
 username = "monitor-user"
-api_token = "your-api-token-here"
+password = "your-api-token-here"
 
-[[jobs]]
+[[job]]
 name = "nightly-build"
-expected_schedule = "0 2 * * *"  # Daily at 2 AM UTC
-alert_threshold = "1h"
+schedule = "0 0 2 * * *"  # Daily at 2 AM UTC (cron format with seconds)
+alert_threshold_minutes = 90  # Alert if job hasn't run in 90 minutes
 
-[[jobs]]
+[[job]]
 name = "hourly-tests"
-expected_schedule = "0 * * * *"  # Every hour
-alert_threshold = "15m"
+schedule = "0 0 * * * *"  # Every hour
+alert_threshold_minutes = 75  # Alert if job hasn't run in 75 minutes
 
-[alerts.slack]
-webhook_url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
-channel = "#jenkins-alerts"
+# Email alerts (optional)
+[email]
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+from = "jenkins-monitor@example.com"
+to = ["ops-team@example.com", "admin@example.com"]
+username = "your-email@gmail.com"
+password = "your-app-password"
 ```
 
 ### Run
 
 ```bash
-# Run with config file
-jenkins-monitor --config config.toml
+# Run the monitor (config.toml must be in current directory)
+./target/release/jenkins-monitor
 
-# Run with Docker
-docker run -v $(pwd)/config.toml:/config.toml jstarcher/jenkins-monitor --config /config.toml
+# Or use cargo run
+cargo run --release
 ```
 
 ## 📋 Use Cases
@@ -89,16 +105,28 @@ docker run -v $(pwd)/config.toml:/config.toml jstarcher/jenkins-monitor --config
 
 ## 🏗️ Project Status
 
-**Current Phase**: Planning & Documentation
+**Current Phase**: MVP Complete ✅
 
-This project is currently in the initial planning stages. We are:
-- ✅ Documenting architecture and design
-- ✅ Creating project roadmap
-- ✅ Defining core features and requirements
-- 📝 Setting up contribution guidelines
-- 🔜 Beginning Phase 1 implementation
+The MVP is now functional with the following features:
+- ✅ Jenkins API integration for job monitoring
+- ✅ Cron-based schedule checking
+- ✅ Email alerts via SMTP
+- ✅ Configurable check intervals and thresholds
+- ✅ Basic logging and error handling
 
-See [ROADMAP.md](ROADMAP.md) for detailed development plans and timelines.
+**What works now:**
+- Monitor multiple Jenkins jobs on a schedule
+- Check if jobs run according to their expected cron schedule
+- Send email alerts when jobs fail to run on time
+- Basic Jenkins authentication support
+
+**Coming soon:**
+- Additional alert channels (Slack, PagerDuty, etc.)
+- Database persistence for alert history
+- Web dashboard
+- Advanced monitoring features
+
+See [ROADMAP.md](ROADMAP.md) for detailed development plans and future features.
 
 ## 📚 Documentation
 
@@ -193,6 +221,6 @@ See also the list of [contributors](https://github.com/jstarcher/jenkins-monitor
 
 ---
 
-**Status**: 🚧 In Planning - Not yet ready for production use
+**Status**: 🚀 MVP Ready - Basic monitoring with email alerts is functional
 
 **Last Updated**: 2025-12-06

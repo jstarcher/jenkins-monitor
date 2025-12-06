@@ -1,5 +1,6 @@
 [general]
-log_level = "error"
+log_level = "info"
+check_interval_seconds = 60
 
 [jenkins]
 url = "http://127.0.0.1:8080"
@@ -8,8 +9,20 @@ password = "admin"
 
 [[job]]
 name = "test1"
-schedule = "1/10 * * * * *"
+schedule = "0 */2 * * * *"  # Every 2 hours
+alert_threshold_minutes = 150  # Alert if job hasn't run in 150 minutes
 
 [[job]]
 name = "test2"
-schedule = "1/10 * * * * *"
+schedule = "0 0 2 * * *"  # Daily at 2 AM
+alert_threshold_minutes = 1500  # Alert if job hasn't run in 25 hours
+
+# Email configuration (optional)
+# Uncomment and configure to enable email alerts
+# [email]
+# smtp_host = "smtp.gmail.com"
+# smtp_port = 587
+# from = "jenkins-monitor@example.com"
+# to = ["ops-team@example.com", "admin@example.com"]
+# username = "your-email@gmail.com"
+# password = "your-app-password"
