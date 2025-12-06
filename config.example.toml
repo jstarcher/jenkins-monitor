@@ -1,0 +1,52 @@
+# Jenkins Monitor Configuration Example
+# Copy this file to config.toml and update with your settings
+
+[general]
+# Log level: error, warn, info, debug, trace
+log_level = "info"
+# How often to check jobs (in seconds)
+check_interval_seconds = 60
+
+[jenkins]
+# Your Jenkins server URL
+url = "https://jenkins.example.com"
+# Jenkins username
+username = "your-username"
+# Jenkins API token or password
+password = "your-api-token"
+
+# Define jobs to monitor
+# You can add as many [[job]] sections as needed
+[[job]]
+name = "nightly-build"
+# Cron schedule with seconds: "sec min hour day month weekday year"
+# This example: Daily at 2 AM UTC
+schedule = "0 0 2 * * *"
+# Alert if job hasn't run in this many minutes
+alert_threshold_minutes = 90
+
+[[job]]
+name = "hourly-tests"
+# This example: Every hour on the hour
+schedule = "0 0 * * * *"
+alert_threshold_minutes = 75
+
+[[job]]
+name = "integration-tests"
+# This example: Every 4 hours
+schedule = "0 0 */4 * * *"
+alert_threshold_minutes = 250
+
+# Email alerts configuration (optional)
+# Comment out this entire section if you don't want email alerts
+[email]
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+from = "jenkins-monitor@example.com"
+to = ["ops-team@example.com", "admin@example.com"]
+# SMTP authentication (optional, but usually required)
+username = "your-email@gmail.com"
+password = "your-app-password"
+
+# Note: For Gmail, you'll need to use an "App Password" instead of your regular password
+# See: https://support.google.com/accounts/answer/185833
