@@ -29,6 +29,8 @@ Jenkins Monitor is a lightweight monitoring tool designed to verify that your Je
 
 ## 🚀 Quick Start
 
+**⚡ Want to get started fast?** See [QUICKSTART.md](QUICKSTART.md) for a 5-minute guide.
+
 ### Installation
 
 ```bash
