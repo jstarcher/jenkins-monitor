@@ -570,79 +570,80 @@ fn should_job_have_run(schedule: &Schedule, now: &DateTime<Utc>, threshold_minut
 }
 
 fn send_email_alert(job_name: &str, message: &str) -> Result<()> {
-    if let Some(email_config) = &APP_CONF.email {
-        // During unit/integration tests we capture outgoing email bodies into a
-        // test-only in-memory vector so tests can assert that an email would
-        // have been sent without needing a real SMTP server.
-        #[cfg(test)]
-        {
-            let email_body = format!(
-                "Jenkins Monitor Alert\n\nJob: {}\n\n{}\n\nTime: {}\nJenkins URL: {}\n",
-                job_name,
-                message,
-                Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
-                APP_CONF.jenkins.url
-            );
-
-            TEST_SENT_EMAILS.lock().unwrap().push(email_body);
-            return Ok(());
-        }
-
-        #[cfg(not(test))]
-        {
+    // During unit/integration tests we always capture outgoing email bodies
+    // into a test-only in-memory vector so tests can assert that an email
+    // would have been sent without needing a real SMTP server. This path
+    // should not depend on email configuration being present.
+    #[cfg(test)]
+    {
         let email_body = format!(
-            "Jenkins Monitor Alert\n\n\
-            Job: {}\n\n\
-            {}\n\n\
-            Time: {}\n\
-            Jenkins URL: {}\n",
+            "Jenkins Monitor Alert\n\nJob: {}\n\n{}\n\nTime: {}\nJenkins URL: {}\n",
             job_name,
             message,
             Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
             APP_CONF.jenkins.url
         );
-        
-        let mut email_builder = Message::builder()
-            .from(email_config.from.parse()?)
-            .subject(format!("Jenkins Monitor Alert: {}", job_name))
-            .header(ContentType::TEXT_PLAIN);
-        
-        for to_addr in &email_config.to {
-            email_builder = email_builder.to(to_addr.parse()?);
-        }
-        
-        let email = email_builder.body(email_body)?;
-        
-        // Allow TLS to be enabled/disabled by configuration. By default config
-        // has TLS enabled (smtp_tls = true) and we'll attempt to use STARTTLS
-        // to upgrade the connection. When disabled we create an unencrypted
-        // builder (builder_dangerous) so callers can opt-out of TLS.
-        let mut mailer_builder = if email_config.smtp_tls {
-            SmtpTransport::starttls_relay(&email_config.smtp_host)?
-        } else {
-            SmtpTransport::builder_dangerous(&email_config.smtp_host)
-        };
 
-        mailer_builder = mailer_builder.port(email_config.smtp_port);
-        
-        if let (Some(username), Some(password)) = (&email_config.username, &email_config.password) {
-            let creds = Credentials::new(username.clone(), password.clone());
-            mailer_builder = mailer_builder.credentials(creds);
-        }
-        
-        let mailer = mailer_builder.build();
-        
-        match mailer.send(&email) {
-            Ok(_) => {
-                info!("Alert email sent for job '{}'", job_name);
-                Ok(())
+        TEST_SENT_EMAILS.lock().unwrap().push(email_body);
+        return Ok(());
+    }
+
+    #[cfg(not(test))]
+    {
+        if let Some(email_config) = &APP_CONF.email {
+            let email_body = format!(
+                "Jenkins Monitor Alert\n\n\
+                Job: {}\n\n\
+                {}\n\n\
+                Time: {}\n\
+                Jenkins URL: {}\n",
+                job_name,
+                message,
+                Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+                APP_CONF.jenkins.url
+            );
+            
+            let mut email_builder = Message::builder()
+                .from(email_config.from.parse()?)
+                .subject(format!("Jenkins Monitor Alert: {}", job_name))
+                .header(ContentType::TEXT_PLAIN);
+            
+            for to_addr in &email_config.to {
+                email_builder = email_builder.to(to_addr.parse()?);
             }
-            Err(e) => Err(anyhow::anyhow!("Failed to send email: {}", e)),
+            
+            let email = email_builder.body(email_body)?;
+            
+            // Allow TLS to be enabled/disabled by configuration. By default config
+            // has TLS enabled (smtp_tls = true) and we'll attempt to use STARTTLS
+            // to upgrade the connection. When disabled we create an unencrypted
+            // builder (builder_dangerous) so callers can opt-out of TLS.
+            let mut mailer_builder = if email_config.smtp_tls {
+                SmtpTransport::starttls_relay(&email_config.smtp_host)?
+            } else {
+                SmtpTransport::builder_dangerous(&email_config.smtp_host)
+            };
+
+            mailer_builder = mailer_builder.port(email_config.smtp_port);
+            
+            if let (Some(username), Some(password)) = (&email_config.username, &email_config.password) {
+                let creds = Credentials::new(username.clone(), password.clone());
+                mailer_builder = mailer_builder.credentials(creds);
+            }
+            
+            let mailer = mailer_builder.build();
+            
+            match mailer.send(&email) {
+                Ok(_) => {
+                    info!("Alert email sent for job '{}'", job_name);
+                    Ok(())
+                }
+                Err(e) => Err(anyhow::anyhow!("Failed to send email: {}", e)),
+            }
+        } else {
+            warn!("Email not configured, skipping alert for job '{}'", job_name);
+            Ok(())
         }
-        }
-    } else {
-        warn!("Email not configured, skipping alert for job '{}'", job_name);
-        Ok(())
     }
 }
 
