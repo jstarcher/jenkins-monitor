@@ -29,6 +29,9 @@ name = "nightly-build"
 # use that. Keeping an explicit `schedule` here will override the value
 # pulled from Jenkins.
 schedule = "0 0 2 * * *"
+# Jenkins often uses 5-field schedule specs (no seconds) such as `0 0 * * *`.
+# The monitor will automatically normalize a 5-field expression by prepending
+# a leading seconds field (default `0`) so both forms are accepted.
 # Alert if job hasn't run in this many minutes
 alert_threshold_minutes = 90
 

@@ -57,6 +57,9 @@ name = "my-job-name"
 # read the job's cron spec from Jenkins' `config.xml`. An explicit schedule in
 # your `config.toml` will override the value found in Jenkins.
 schedule = "0 0 2 * * *"  # Daily at 2 AM
+# Note: Jenkins cron specs commonly use 5-field format (minute hour day month weekday)
+# like `0 0 * * *`. The monitor will normalize 5-field specs by prepending a
+# seconds field (default `0`) so they are accepted by the internal cron parser.
 alert_threshold_minutes = 90  # Alert if not run in 90 minutes
 
 Note: If your Jenkins job is inside one or more folders, specify the path with forward slashes. For example:

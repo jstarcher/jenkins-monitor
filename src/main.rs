@@ -212,6 +212,23 @@ fn fetch_job_schedule(job_name: &str) -> Result<String> {
     }
 }
 
+// Normalize a cron schedule string for the `cron` crate which expects a
+// seconds field. Jenkins `config.xml` (and many Jenkins UI specs) commonly
+// use 5-field cron specs (minute hour day month weekday). Convert common
+// 5-field forms by prepending `0` seconds. If already contains 6+ fields,
+// leave as-is.
+fn normalize_cron_spec(spec: &str) -> String {
+    let s = spec.trim();
+    // Split on whitespace; treat continuous whitespace as separator
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    if parts.len() == 5 {
+        // Jenkins 5-field form -> prepend seconds = 0
+        format!("0 {}", s)
+    } else {
+        s.to_string()
+    }
+}
+
 fn check_job(job_name: &str, schedule: &Schedule, threshold_minutes: i64) -> Result<bool> {
     let now = Utc::now();
     let client = get_jenkins_client();
@@ -658,10 +675,15 @@ fn monitor_jobs() {
             }
         };
 
-        let schedule = match Schedule::from_str(&schedule_str) {
+        // Normalize Jenkins-style 5-field cron specs by adding a seconds
+        // field (default 0). This makes schedules like `0 0 * * *` valid
+        // for the `cron` crate which expects a seconds field.
+        let normalized = normalize_cron_spec(&schedule_str);
+
+        let schedule = match Schedule::from_str(&normalized) {
             Ok(s) => s,
             Err(e) => {
-                error!("Invalid cron schedule '{}' for job '{}': {}", schedule_str, job_config.name, e);
+                error!("Invalid cron schedule '{}' for job '{}': {}", normalized, job_config.name, e);
                 continue;
             }
         };
@@ -795,5 +817,19 @@ mod tests {
 
         // running builds (None) are not treated as failures
         assert!(!super::is_build_failed(&r));
+    }
+
+    #[test]
+    fn normalize_cron_spec_adds_seconds_for_5_field() {
+        let in_spec = "0 0 * * *";
+        let got = super::normalize_cron_spec(in_spec);
+        assert_eq!(got, "0 0 0 * * *");
+    }
+
+    #[test]
+    fn normalize_cron_spec_keeps_6_field() {
+        let in_spec = "0 0 2 * * *";
+        let got = super::normalize_cron_spec(in_spec);
+        assert_eq!(got, "0 0 2 * * *");
     }
 }

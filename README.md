@@ -43,6 +43,22 @@ cargo build --release
 # The binary will be at target/release/jenkins-monitor
 ```
 
+If you prefer a small convenience wrapper, there's a top-level `Makefile` with common targets. Examples:
+
+```bash
+# Build a release binary
+make build
+
+# Run the release binary
+make run
+
+# Run tests
+make test
+
+# Install the binary into $CARGO_HOME/bin
+make install
+```
+
 ### Basic Configuration
 
 Create a `config.toml` file:
@@ -64,6 +80,9 @@ name = "nightly-build"
 # your `config.toml` will override the value found in Jenkins.
 schedule = "0 0 2 * * *"  # Daily at 2 AM UTC (cron format with seconds)
 alert_threshold_minutes = 90  # Alert if job hasn't run in 90 minutes
+# Note: Jenkins often uses 5-field cron specs (no seconds) such as `0 0 * * *`.
+# This monitor will automatically normalize 5-field cron expressions by
+# prepending a leading seconds field of `0` so both forms are accepted.
 
 [[job]]
 name = "hourly-tests"
