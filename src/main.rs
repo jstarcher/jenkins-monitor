@@ -1,4 +1,3 @@
-extern crate cron;
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -91,7 +90,10 @@ fn check_job(job_name: &str, schedule: &Schedule, threshold_minutes: i64) -> Res
         
         let build: BuildDetails = build_response.json().context("Failed to parse build JSON")?;
         
-        let build_time = Utc.timestamp_millis_opt(build.timestamp).unwrap();
+        let build_time = Utc
+            .timestamp_millis_opt(build.timestamp)
+            .single()
+            .context("Invalid timestamp from Jenkins")?;
         let minutes_since_build = (now.timestamp() - build_time.timestamp()) / 60;
         
         info!(
