@@ -25,6 +25,7 @@ lazy_static! {
 
 #[derive(Deserialize, Debug)]
 struct JenkinsJob {
+    #[allow(dead_code)]
     name: String,
     #[serde(rename = "lastBuild")]
     last_build: Option<LastBuild>,
@@ -32,6 +33,7 @@ struct JenkinsJob {
 
 #[derive(Deserialize, Debug)]
 struct LastBuild {
+    #[allow(dead_code)]
     number: i64,
     url: String,
 }
@@ -42,6 +44,7 @@ struct BuildDetails {
     timestamp: i64,
     result: Option<String>,
     #[serde(rename = "displayName")]
+    #[allow(dead_code)]
     display_name: String,
 }
 
