@@ -1,0 +1,15 @@
+[general]
+log_level = "error"
+
+[jenkins]
+url = "http://127.0.0.1:8080"
+username = "admin"
+password = "admin"
+
+[[job]]
+name = "test1"
+schedule = "1/10 * * * * *"
+
+[[job]]
+name = "test2"
+schedule = "1/10 * * * * *"
