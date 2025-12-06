@@ -59,6 +59,43 @@ make test
 make install
 ```
 
+Releases & CI
+----------------
+
+This repository includes GitHub Actions workflows:
+
+- `.github/workflows/ci.yml` — runs on commits and PRs to `master` and executes tests and builds the release artifact.
+- `.github/workflows/release.yml` — runs on tag pushes that match `v*` (for example `v0.1.0`). It builds release artifacts, creates a GitHub Release and attaches a binary tarball and a Debian package (if cargo-deb is enabled).
+
+To publish a release from this repo you can tag & push:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow will run and attach the compiled artifacts.
+
+Installing as a systemd service
+-------------------------------
+
+If you prefer to run this as a system service on Debian, you can use `make install-service` on the target machine (requires sudo). This will:
+
+- copy the binary to `/usr/local/bin/jenkins-monitor`
+- install the `packaging/jenkins-monitor.service` systemd unit to `/etc/systemd/system`
+- create a `jenkins-monitor` system user and directories under `/etc/jenkins-monitor` and `/var/lib/jenkins-monitor`
+- enable and start the service via `systemctl`
+
+You can also install the Debian package (`.deb`) produced by the release workflow, or build one locally with `cargo deb`:
+
+```bash
+# build a .deb locally (requires cargo-deb)
+cargo deb
+# install the produced deb
+sudo dpkg -i target/debian/jenkins-monitor_*.deb
+```
+
+
 ### Basic Configuration
 
 Create a `config.toml` file:

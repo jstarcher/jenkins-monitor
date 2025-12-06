@@ -52,6 +52,22 @@ install:
 clean:
 	cargo clean
 
+install-service: build
+	@echo "Installing binary to /usr/local/bin and systemd unit..."
+	sudo install -m0755 -D target/release/jenkins-monitor /usr/local/bin/jenkins-monitor
+	sudo install -m0644 -D packaging/jenkins-monitor.service /etc/systemd/system/jenkins-monitor.service
+	# Create system user and directories if they don't exist
+	sudo useradd --system --no-create-home --shell /usr/sbin/nologin jenkins-monitor || true
+	sudo mkdir -p /etc/jenkins-monitor /var/lib/jenkins-monitor
+	sudo chown -R jenkins-monitor:jenkins-monitor /etc/jenkins-monitor /var/lib/jenkins-monitor
+
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now jenkins-monitor || sudo systemctl restart jenkins-monitor
+
+deb: build
+	@echo "Building .deb with cargo-deb (requires cargo-deb installed)"
+	cargo deb --no-strip
+
 dist: build
 	@mkdir -p target/dist
 	@tar -C target/release -czf target/dist/jenkins-monitor-$(shell git describe --tags --always)-$(shell date +%Y%m%d%H%M%S).tar.gz jenkins-monitor

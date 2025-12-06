@@ -24,3 +24,13 @@ urlencoding = "2.1"
 url = "2.4"
 [dev-dependencies]
 mockito = "0.31"
+
+[package.metadata.deb]
+# Files to include in the produced .deb and where to place them
+name = "jenkins-monitor"
+maintainer = "Jordan Starcher <jstarcher@gmail.com>"
+assets = [
+	["target/release/jenkins-monitor","/usr/local/bin/jenkins-monitor"],
+	["packaging/jenkins-monitor.service","/lib/systemd/system/jenkins-monitor.service"],
+	["config.example.toml","/etc/jenkins-monitor/config.example.toml"]
+]

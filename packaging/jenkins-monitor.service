@@ -1,0 +1,15 @@
+[Unit]
+Description=Jenkins Monitor
+After=network-online.target
+
+[Service]
+User=jenkins-monitor
+Group=jenkins-monitor
+WorkingDirectory=/etc/jenkins-monitor
+ExecStart=/usr/local/bin/jenkins-monitor
+Restart=on-failure
+RestartSec=30
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
