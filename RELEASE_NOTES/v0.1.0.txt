@@ -1,0 +1,3 @@
+Release v0.1.0: initial release
+
+See RELEASE-NOTES/v0.1.0.md for details.
