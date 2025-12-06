@@ -1,0 +1,46 @@
+# Jenkins Monitor Configuration Example
+
+[jenkins]
+# Jenkins server URL
+url = "https://jenkins.example.com"
+
+# Optional: Jenkins username for authentication
+# username = "monitor-user"
+
+# Optional: Jenkins API token for authentication
+# You can also use environment variable: ${JENKINS_API_TOKEN}
+# api_token = "your-api-token-here"
+
+# Request timeout in seconds (default: 30)
+timeout_secs = 30
+
+# Define jobs to monitor
+[[jobs]]
+name = "nightly-build"
+# Cron expression for expected schedule (daily at 2 AM UTC)
+expected_schedule = "0 2 * * *"
+# Alert threshold in minutes (default: 60)
+alert_threshold_mins = 60
+# Whether this job is enabled for monitoring (default: true)
+enabled = true
+
+[[jobs]]
+name = "hourly-tests"
+# Every hour
+expected_schedule = "0 * * * *"
+alert_threshold_mins = 15
+enabled = true
+
+# Alert configuration
+[alerts]
+
+# Email alerts via SMTP
+[alerts.email]
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+from = "jenkins-monitor@example.com"
+to = ["ops-team@example.com", "dev-team@example.com"]
+
+# Optional: SMTP authentication
+# username = "your-email@example.com"
+# password = "your-app-password"
