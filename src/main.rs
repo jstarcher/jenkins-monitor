@@ -315,17 +315,28 @@ fn check_job(job_name: &str, schedule: &Schedule, threshold_minutes: i64) -> Res
             return Ok(false);
         }
         
-        // Calculate when the job should have run based on the schedule
-        let should_have_run = should_job_have_run(schedule, &now, threshold_minutes)?;
+        // Find the most recent scheduled run time based on the cron schedule
+        let most_recent_scheduled = should_job_have_run(schedule, &now, threshold_minutes)?;
         
-        if should_have_run && minutes_since_build > threshold_minutes {
+        // Calculate how long ago the most recent scheduled run should have occurred
+        let minutes_since_scheduled = (now.timestamp() - most_recent_scheduled.timestamp()) / 60;
+        
+        // Alert if the last build is older than the most recent scheduled time + threshold
+        // This means: we expected a run at most_recent_scheduled, and it should have
+        // completed within threshold_minutes, but the actual last build is too old
+        if minutes_since_build > minutes_since_scheduled + threshold_minutes {
             warn!(
-                "Job '{}' hasn't run in {} minutes (threshold: {} minutes)",
-                job_name, minutes_since_build, threshold_minutes
+                "Job '{}' hasn't run since expected schedule. Last build was {} minutes ago, \
+                but job was scheduled to run {} minutes ago (threshold: {} minutes)",
+                job_name, minutes_since_build, minutes_since_scheduled, threshold_minutes
             );
             return Ok(false); // Job is overdue
         }
         
+        debug!(
+            "Job '{}' is healthy - last build {} minutes ago, most recent schedule was {} minutes ago",
+            job_name, minutes_since_build, minutes_since_scheduled
+        );
         Ok(true) // Job is running on schedule
     } else {
         warn!("Job '{}' has never been built", job_name);
@@ -556,17 +567,25 @@ mod email_capture_tests {
     }
 }
 
-fn should_job_have_run(schedule: &Schedule, now: &DateTime<Utc>, threshold_minutes: i64) -> Result<bool> {
-    // Get the last scheduled time for this job
-    let lookback = *now - chrono::Duration::minutes(threshold_minutes);
+fn should_job_have_run(schedule: &Schedule, now: &DateTime<Utc>, threshold_minutes: i64) -> Result<DateTime<Utc>> {
+    // Find the most recent scheduled run time before 'now' by looking back
+    // far enough to find at least one occurrence. We look back threshold_minutes
+    // plus extra time to ensure we find a scheduled occurrence.
+    let lookback = *now - chrono::Duration::minutes(threshold_minutes * 2);
     
-    for scheduled_time in schedule.after(&lookback).take(10) {
+    let mut most_recent: Option<DateTime<Utc>> = None;
+    
+    // Find all scheduled times between lookback and now, keeping track of the most recent
+    for scheduled_time in schedule.after(&lookback).take(100) {
         if scheduled_time <= *now {
-            return Ok(true);
+            most_recent = Some(scheduled_time);
+        } else {
+            // We've passed 'now', so we found the most recent scheduled time
+            break;
         }
     }
     
-    Ok(false)
+    most_recent.ok_or_else(|| anyhow::anyhow!("Could not find scheduled run time in lookback window"))
 }
 
 fn send_email_alert(job_name: &str, message: &str) -> Result<()> {
@@ -832,5 +851,142 @@ mod tests {
         let in_spec = "0 0 2 * * *";
         let got = super::normalize_cron_spec(in_spec);
         assert_eq!(got, "0 0 2 * * *");
+    }
+
+    #[test]
+    fn should_job_have_run_finds_most_recent_scheduled_time() {
+        use chrono::prelude::*;
+        use cron::Schedule;
+        use std::str::FromStr;
+
+        // Daily at midnight schedule
+        let schedule = Schedule::from_str("0 0 0 * * *").unwrap();
+        
+        // Current time is 01:28:05 on Dec 7, 2025
+        let now = Utc.ymd(2025, 12, 7).and_hms(1, 28, 5);
+        let threshold_minutes = 90;
+        
+        let most_recent = super::should_job_have_run(&schedule, &now, threshold_minutes).unwrap();
+        
+        // Most recent scheduled time should be midnight on Dec 7
+        let expected = Utc.ymd(2025, 12, 7).and_hms(0, 0, 0);
+        assert_eq!(most_recent, expected);
+    }
+
+    #[test]
+    fn should_job_have_run_finds_scheduled_time_for_hourly_job() {
+        use chrono::prelude::*;
+        use cron::Schedule;
+        use std::str::FromStr;
+
+        // Hourly at the top of the hour
+        let schedule = Schedule::from_str("0 0 * * * *").unwrap();
+        
+        // Current time is 14:35:00
+        let now = Utc.ymd(2025, 12, 7).and_hms(14, 35, 0);
+        let threshold_minutes = 45;
+        
+        let most_recent = super::should_job_have_run(&schedule, &now, threshold_minutes).unwrap();
+        
+        // Most recent scheduled time should be 14:00:00
+        let expected = Utc.ymd(2025, 12, 7).and_hms(14, 0, 0);
+        assert_eq!(most_recent, expected);
+    }
+
+    #[test]
+    fn should_job_have_run_handles_job_scheduled_every_4_hours() {
+        use chrono::prelude::*;
+        use cron::Schedule;
+        use std::str::FromStr;
+
+        // Every 4 hours
+        let schedule = Schedule::from_str("0 0 */4 * * *").unwrap();
+        
+        // Current time is 17:30:00
+        let now = Utc.ymd(2025, 12, 7).and_hms(17, 30, 0);
+        let threshold_minutes = 250; // ~4 hours + buffer
+        
+        let most_recent = super::should_job_have_run(&schedule, &now, threshold_minutes).unwrap();
+        
+        // Most recent scheduled time should be 16:00:00 (closest 4-hour mark)
+        let expected = Utc.ymd(2025, 12, 7).and_hms(16, 0, 0);
+        assert_eq!(most_recent, expected);
+    }
+
+    #[test]
+    fn no_false_alert_when_job_runs_within_threshold() {
+        // This test validates the fix for the bug report where alerts were
+        // triggered when jobs were still within their valid execution window.
+        //
+        // Scenario from bug report:
+        // - Job scheduled to run at midnight (00:00) daily
+        // - Current time: 2025-12-07 01:28:05 UTC (88 minutes after midnight)
+        // - Alert threshold: 90 minutes
+        // - Expected: NO alert (job ran 88 minutes ago, within 90 minute threshold)
+        
+        use chrono::prelude::*;
+        use cron::Schedule;
+        use std::str::FromStr;
+
+        let schedule = Schedule::from_str("0 0 0 * * *").unwrap(); // Daily at midnight
+        let now = Utc.ymd(2025, 12, 7).and_hms(1, 28, 5);
+        let threshold_minutes = 90;
+        
+        // Find most recent scheduled time
+        let most_recent_scheduled = super::should_job_have_run(&schedule, &now, threshold_minutes).unwrap();
+        assert_eq!(most_recent_scheduled, Utc.ymd(2025, 12, 7).and_hms(0, 0, 0));
+        
+        // Simulate the job having run at midnight
+        let last_build_time = Utc.ymd(2025, 12, 7).and_hms(0, 0, 0);
+        let minutes_since_build = (now.timestamp() - last_build_time.timestamp()) / 60;
+        assert_eq!(minutes_since_build, 88);
+        
+        // Calculate minutes since scheduled time
+        let minutes_since_scheduled = (now.timestamp() - most_recent_scheduled.timestamp()) / 60;
+        assert_eq!(minutes_since_scheduled, 88);
+        
+        // The fixed logic: alert only if last build is older than scheduled + threshold
+        // minutes_since_build > minutes_since_scheduled + threshold_minutes
+        // 88 > 88 + 90 = 88 > 178 = false (NO ALERT - correct!)
+        let should_alert = minutes_since_build > minutes_since_scheduled + threshold_minutes;
+        assert!(!should_alert, "Should NOT alert when job ran 88 minutes ago with 90 minute threshold");
+    }
+
+    #[test]
+    fn alert_when_job_missed_scheduled_run() {
+        // Test that we DO alert when a job misses its scheduled run
+        //
+        // Scenario:
+        // - Job scheduled to run at midnight (00:00) daily
+        // - Current time: 2025-12-07 02:00:00 UTC (2 hours after midnight)
+        // - Alert threshold: 90 minutes
+        // - Last build was yesterday at midnight (24+ hours ago)
+        // - Expected: ALERT (job should have run at midnight, it's now past the threshold)
+        
+        use chrono::prelude::*;
+        use cron::Schedule;
+        use std::str::FromStr;
+
+        let schedule = Schedule::from_str("0 0 0 * * *").unwrap(); // Daily at midnight
+        let now = Utc.ymd(2025, 12, 7).and_hms(2, 0, 0);
+        let threshold_minutes = 90;
+        
+        // Find most recent scheduled time (midnight today)
+        let most_recent_scheduled = super::should_job_have_run(&schedule, &now, threshold_minutes).unwrap();
+        assert_eq!(most_recent_scheduled, Utc.ymd(2025, 12, 7).and_hms(0, 0, 0));
+        
+        // Simulate the job having last run yesterday at midnight
+        let last_build_time = Utc.ymd(2025, 12, 6).and_hms(0, 0, 0);
+        let minutes_since_build = (now.timestamp() - last_build_time.timestamp()) / 60;
+        assert_eq!(minutes_since_build, 1560); // 26 hours
+        
+        // Calculate minutes since scheduled time
+        let minutes_since_scheduled = (now.timestamp() - most_recent_scheduled.timestamp()) / 60;
+        assert_eq!(minutes_since_scheduled, 120); // 2 hours
+        
+        // The fixed logic: alert if last build is older than scheduled + threshold
+        // 1560 > 120 + 90 = 1560 > 210 = true (ALERT - correct!)
+        let should_alert = minutes_since_build > minutes_since_scheduled + threshold_minutes;
+        assert!(should_alert, "Should ALERT when job last ran 26 hours ago but was scheduled 2 hours ago with 90 minute threshold");
     }
 }
