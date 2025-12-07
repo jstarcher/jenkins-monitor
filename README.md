@@ -1,7 +1,6 @@
 # Jenkins Monitor 🔍
-[![CircleCI](https://circleci.com/gh/jstarcher/jenkins-monitor/tree/init.svg?style=svg&circle-token=148cadfd16b0ef17e70c115c368a7208681cf6e9)](https://circleci.com/gh/jstarcher/jenkins-monitor/tree/init)
 
-Ensure Jenkins actually runs jobs when you expect it to and alert you if it did not
+> *"I'm watching the watchers, Jerry!"* — Kramer
 
 [![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE)
