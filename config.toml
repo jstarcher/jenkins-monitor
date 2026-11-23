@@ -1,3 +1,5 @@
+# Local test config for a throwaway Jenkins at 127.0.0.1:8080.
+# Don't put real credentials here: this file is tracked in git.
 [general]
 log_level = "info"
 check_interval_seconds = 60
@@ -9,20 +11,19 @@ password = "admin"
 
 [[job]]
 name = "test1"
-schedule = "0 */2 * * * *"  # Every 2 hours
-alert_threshold_minutes = 150  # Alert if job hasn't run in 150 minutes
+schedule = "*/2 * * * *"        # every 2 minutes
+alert_threshold_minutes = 5
 
 [[job]]
 name = "test2"
-schedule = "0 0 2 * * *"  # Daily at 2 AM
-alert_threshold_minutes = 1500  # Alert if job hasn't run in 25 hours
+schedule = "0 2 * * *"          # daily at 2 AM
+alert_threshold_minutes = 60
 
 # Email configuration (optional)
-# Uncomment and configure to enable email alerts
 # [email]
 # smtp_host = "smtp.gmail.com"
 # smtp_port = 587
 # from = "jenkins-monitor@example.com"
-# to = ["ops-team@example.com", "admin@example.com"]
+# to = ["ops-team@example.com"]
 # username = "your-email@gmail.com"
 # password = "your-app-password"

@@ -1,65 +1,79 @@
-# Jenkins Monitor Configuration Example
-# Copy this file to config.toml and update with your settings
+# Jenkins Monitor configuration example
+# Copy this file to config.toml (or point --config / JENKINS_MONITOR_CONFIG at
+# it) and update with your settings. Keep it private: chmod 600 config.toml.
 
 [general]
-# Log level: error, warn, info, debug, trace
+# Log level: error, warn, info, debug, trace (RUST_LOG overrides this)
 log_level = "info"
 # How often to check jobs (in seconds)
 check_interval_seconds = 60
+# Alert when the monitor itself can't check a job (Jenkins unreachable,
+# bad credentials, unreadable schedule...)
+alert_on_check_error = true
+# ...but only after this many failed checks in a row
+error_alert_after = 3
+# Repeat an unresolved alert every N minutes (0 = alert once per problem)
+realert_minutes = 0
+# Send a "recovered" email when a job is healthy again
+send_recovery = true
 
 [jenkins]
-# Your Jenkins server URL
 url = "https://jenkins.example.com"
-# Jenkins username
 username = "your-username"
-# Jenkins API token or password
+# Use a Jenkins API token, not your password. You can leave these out of the
+# file and set JENKINS_MONITOR_JENKINS_USERNAME / JENKINS_MONITOR_JENKINS_PASSWORD
+# in the environment instead.
 password = "your-api-token"
+# The time zone your Jenkins controller runs cron triggers in (its JVM
+# default). A TZ= line inside a job's own spec still wins.
+timezone = "UTC"
 
-# Define jobs to monitor
-# You can add as many [[job]] sections as needed
-#
-# If your job is inside Jenkins folders, use a slash-separated path for `name`:
+# One [[job]] section per job. Jobs inside folders use a slash-separated path:
 # name = "folder/subfolder/job-name"
+#
+# schedule is optional. Leave it out and the monitor reads the job's timer
+# trigger ("Build periodically") from Jenkins on every check. Set it to
+# override what Jenkins says.
+#
+# Schedules use Jenkins syntax: 5 fields (minute hour day month weekday),
+# H, H/15, H(0-29), @daily/@hourly/@weekly/@monthly/@yearly, several lines,
+# # comments and TZ=Area/City. Weekdays are 0-7, with 0 and 7 both Sunday.
+# 6-field specs (seconds first, cron-crate style) from older versions of this
+# tool still work.
+#
+# alert_threshold_minutes is the grace period: how long after a scheduled
+# time the build may start before the run counts as missed. Jobs using H get
+# H's possible spread added automatically.
+
 [[job]]
 name = "nightly-build"
-# Cron schedule with seconds: "sec min hour day month weekday year"
-# This example: Daily at 2 AM UTC
-# NOTE: This value is now optional. If you omit `schedule`, the monitor
-# will fetch the job's schedule from Jenkins via the job's `config.xml` and
-# use that. Keeping an explicit `schedule` here will override the value
-# pulled from Jenkins.
-schedule = "0 0 2 * * *"
-# Jenkins often uses 5-field schedule specs (no seconds) such as `0 0 * * *`.
-# The monitor will automatically normalize a 5-field expression by prepending
-# a leading seconds field (default `0`) so both forms are accepted.
-# Alert if job hasn't run in this many minutes
-alert_threshold_minutes = 90
+schedule = "H 2 * * *"            # once between 02:00 and 02:59
+alert_threshold_minutes = 60
 
 [[job]]
 name = "hourly-tests"
-# This example: Every hour on the hour
-schedule = "0 0 * * * *"
-alert_threshold_minutes = 75
+schedule = "0 * * * *"            # on the hour
+alert_threshold_minutes = 15
 
 [[job]]
-name = "integration-tests"
-# This example: Every 4 hours
-schedule = "0 0 */4 * * *"
-alert_threshold_minutes = 250
+name = "team/weekday-report"
+# No schedule: read from Jenkins.
+alert_threshold_minutes = 30
+# Optional per-job switches:
+# alert_on_failure = true   # alert when the last completed build didn't succeed
+# alert_on_error = false    # override general.alert_on_check_error for this job
 
-# Email alerts configuration (optional)
-# Comment out this entire section if you don't want email alerts
+# Email alerts (optional). Without this section alerts only go to the log.
 [email]
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
-# Enable STARTTLS to upgrade the SMTP connection to use TLS. Set to false to
-# force an unencrypted connection (not recommended).
-smtp_tls = true
+# starttls (usually port 587), tls (usually port 465), or none (local relay only)
+smtp_security = "starttls"
 from = "jenkins-monitor@example.com"
 to = ["ops-team@example.com", "admin@example.com"]
-# SMTP authentication (optional, but usually required)
+# Or set JENKINS_MONITOR_SMTP_USERNAME / JENKINS_MONITOR_SMTP_PASSWORD.
 username = "your-email@gmail.com"
 password = "your-app-password"
 
-# Note: For Gmail, you'll need to use an "App Password" instead of your regular password
+# Note: For Gmail, you'll need an "App Password" instead of your regular password
 # See: https://support.google.com/accounts/answer/185833

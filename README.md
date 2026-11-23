@@ -14,7 +14,9 @@ Jenkins Monitor is a lightweight monitoring tool designed to verify that your Je
 ### Available in MVP
 - ✅ **Schedule Monitoring**: Define expected job schedules using cron expressions
 - ✅ **Missed Job Detection**: Automatically detect when jobs don't run as expected
-- ✅ **Build Failure Alerts**: If a job's last build completed with a non-success status (e.g. FAILURE, UNSTABLE, ABORTED) the monitor will alert immediately
+- ✅ **Build Failure Alerts**: Alerts when the last completed build didn't succeed (FAILURE, UNSTABLE, ABORTED)
+- ✅ **Jenkins Cron Syntax**: `H`, aliases like `@daily`, `TZ=` lines and the Jenkins server's time zone
+- ✅ **Alert Deduplication**: One email per problem, optional reminders, and recovery notices
 - ✅ **Email Alerts**: Send notifications via SMTP when jobs miss their schedule
 - ✅ **Multiple Job Support**: Monitor multiple jobs across one Jenkins instance
 - ✅ **Low Resource Usage**: Written in Rust for performance and reliability
@@ -97,7 +99,7 @@ sudo dpkg -i target/debian/jenkins-monitor_*.deb
 
 ### Basic Configuration
 
-Create a `config.toml` file:
+Create a `config.toml` file (see [config.example.toml](config.example.toml) for every option):
 
 ```toml
 [general]
@@ -107,63 +109,47 @@ check_interval_seconds = 60
 [jenkins]
 url = "https://jenkins.example.com"
 username = "monitor-user"
-password = "your-api-token-here"
+password = "your-api-token-here"   # or set JENKINS_MONITOR_JENKINS_PASSWORD
+timezone = "UTC"                   # the Jenkins controller's time zone
 
 [[job]]
 name = "nightly-build"
-# The `schedule` field is optional — if omitted the monitor will attempt to
-# read the job's cron spec from Jenkins' `config.xml`. An explicit schedule in
-# your `config.toml` will override the value found in Jenkins.
-schedule = "0 0 2 * * *"  # Daily at 2 AM UTC (cron format with seconds)
-alert_threshold_minutes = 90  # Alert if job hasn't run in 90 minutes
-# Note: Jenkins often uses 5-field cron specs (no seconds) such as `0 0 * * *`.
-# This monitor will automatically normalize 5-field cron expressions by
-# prepending a leading seconds field of `0` so both forms are accepted.
+# Optional: leave out to read the job's "Build periodically" spec from Jenkins.
+# Jenkins syntax: H, H/15, @daily, TZ=..., weekdays 0-7 (0 and 7 = Sunday).
+schedule = "H 2 * * *"
+alert_threshold_minutes = 60       # how late a build may start before it counts as missed
 
 [[job]]
-name = "hourly-tests"
-schedule = "0 0 * * * *"  # Every hour
-alert_threshold_minutes = 75  # Alert if job hasn't run in 75 minutes
+name = "team/hourly-tests"         # jobs in folders use a slash-separated path
+schedule = "0 * * * *"
+alert_threshold_minutes = 15
 
 # Email alerts (optional)
 [email]
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
-# Enable STARTTLS to upgrade the SMTP connection to TLS. Set to false to
-# use an unencrypted connection (not recommended).
-smtp_tls = true
+smtp_security = "starttls"         # starttls, tls (port 465) or none
 from = "jenkins-monitor@example.com"
 to = ["ops-team@example.com", "admin@example.com"]
 username = "your-email@gmail.com"
-password = "your-app-password"
+password = "your-app-password"     # or set JENKINS_MONITOR_SMTP_PASSWORD
 ```
 
 ### Run
 
 ```bash
-# Run the monitor (config.toml must be in current directory)
-./target/release/jenkins-monitor
+# Validate the config and print each job's schedule
+./target/release/jenkins-monitor --config config.toml --check
+
+# Run the monitor
+./target/release/jenkins-monitor --config config.toml
 
 # Or use cargo run
-cargo run --release
+cargo run --release -- --config config.toml
 ```
 
-## 📋 Use Cases
-
-### Development Teams
-- Ensure nightly builds run reliably
-- Monitor critical CI/CD pipelines
-- Get immediate notifications when scheduled jobs fail to execute
-
-### DevOps/SRE Teams
-- Verify backup jobs run on schedule
-- Monitor deployment pipelines across multiple environments
-- Track job execution patterns and trends
-
-### QA Teams
-- Ensure automated test suites run as expected
-- Monitor regression test schedules
-- Verify integration test execution
+Each problem (missed run, failed build, job that can't be checked) is emailed
+once, with a "recovered" email when it clears. See [USAGE.md](USAGE.md).
 
 ## 🏗️ Project Status
 
