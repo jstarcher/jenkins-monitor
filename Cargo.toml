@@ -1,8 +1,10 @@
 [package]
 name = "jenkins-monitor"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jordan Starcher <jstarcher@gmail.com>"]
 edition = "2021"
+rust-version = "1.75"
+description = "Alerts when scheduled Jenkins jobs miss a run or fail"
 
 [[bin]]
 name = "jenkins-monitor"
@@ -10,27 +12,26 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-cron = "0.12"
-lazy_static = "1.4"
-log = "0.4"
-env_logger = "0.11"
-toml = "0.8"
-chrono = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.11", features = ["blocking", "json"] }
-lettre = "0.11"
 anyhow = "1.0"
+chrono = { version = "0.4.38", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+cron = "0.15"
+env_logger = "0.11"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "rustls-tls", "hostname"] }
+log = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
 urlencoding = "2.1"
-url = "2.4"
+
 [dev-dependencies]
-mockito = "0.31"
+mockito = "1.5"
 
 [package.metadata.deb]
-# Files to include in the produced .deb and where to place them
 name = "jenkins-monitor"
 maintainer = "Jordan Starcher <jstarcher@gmail.com>"
 assets = [
-	["target/release/jenkins-monitor","/usr/local/bin/jenkins-monitor"],
-	["packaging/jenkins-monitor.service","/lib/systemd/system/jenkins-monitor.service"],
-	["config.example.toml","/etc/jenkins-monitor/config.example.toml"]
+	["target/release/jenkins-monitor","/usr/local/bin/jenkins-monitor","755"],
+	["packaging/jenkins-monitor.service","/lib/systemd/system/jenkins-monitor.service","644"],
+	["config.example.toml","/etc/jenkins-monitor/config.example.toml","644"]
 ]
