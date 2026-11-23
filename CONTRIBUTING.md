@@ -139,16 +139,14 @@ Enhancement suggestions are welcome! Please:
 ```
 jenkins-monitor/
 ├── src/
-│   ├── main.rs           # Application entry point
-│   ├── lib.rs            # Library root
-│   ├── api/              # Jenkins API client
-│   ├── monitor/          # Monitoring logic
-│   ├── alert/            # Alert management
-│   ├── config/           # Configuration handling
-│   └── utils/            # Utility functions
-├── tests/                # Integration tests
-├── examples/             # Example usage
-└── benches/              # Performance benchmarks
+│   ├── main.rs           # CLI and main loop
+│   ├── config.rs         # Config loading, env overrides, validation
+│   ├── schedule.rs       # Jenkins cron syntax and "which run is due"
+│   ├── jenkins.rs        # Jenkins REST client (JenkinsApi trait)
+│   ├── monitor.rs        # Health checks and alert state
+│   └── notify.rs         # Alert channels (Notifier trait, email)
+├── packaging/            # systemd unit
+└── scripts/              # Helpers for a test Jenkins
 ```
 
 ### Documentation

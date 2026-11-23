@@ -40,11 +40,16 @@ Edit `config.toml` and update the `[jenkins]` section:
 [jenkins]
 url = "https://your-jenkins-server.com"
 username = "your-username"
-password = "your-api-token-or-password"
+password = "your-api-token"
+# Time zone your Jenkins controller runs cron triggers in (default UTC)
+timezone = "America/New_York"
 ```
 
-**Important:** For security, use a Jenkins API token instead of your password. You can generate one in Jenkins at:
-`Your Name → Configure → API Token`
+**Important:** Use a Jenkins API token instead of your password. You can generate one in Jenkins at:
+`Your Name → Configure → API Token`. The Jenkins user only needs read access to the jobs.
+
+To keep credentials out of the file, leave `username`/`password` out and set
+`JENKINS_MONITOR_JENKINS_USERNAME` and `JENKINS_MONITOR_JENKINS_PASSWORD` in the environment.
 
 ### Step 3: Define Jobs to Monitor
 
@@ -52,45 +57,53 @@ Add a `[[job]]` section for each job you want to monitor:
 
 ```toml
 [[job]]
-name = "my-job-name"
-# The `schedule` field is optional — if omitted the monitor will attempt to
-# read the job's cron spec from Jenkins' `config.xml`. An explicit schedule in
-# your `config.toml` will override the value found in Jenkins.
-schedule = "0 0 2 * * *"  # Daily at 2 AM
-# Note: Jenkins cron specs commonly use 5-field format (minute hour day month weekday)
-# like `0 0 * * *`. The monitor will normalize 5-field specs by prepending a
-# seconds field (default `0`) so they are accepted by the internal cron parser.
-alert_threshold_minutes = 90  # Alert if not run in 90 minutes
-
-Note: If your Jenkins job is inside one or more folders, specify the path with forward slashes. For example:
-
-```toml
-[[job]]
-name = "folder/subfolder/my-job-name"
-```
-The monitor will translate this into the Jenkins API path `/job/folder/job/subfolder/job/my-job-name/api/json`.
+name = "my-job-name"            # folders: "folder/subfolder/my-job-name"
+schedule = "H 2 * * *"          # optional, see below
+alert_threshold_minutes = 60    # grace period after each scheduled time
+# alert_on_failure = true       # alert when the last completed build didn't succeed
+# alert_on_error = true         # override general.alert_on_check_error
 ```
 
-#### Understanding Cron Schedule Format
+`schedule` is optional. Leave it out and the monitor reads the job's
+"Build periodically" timer trigger from Jenkins on every check, so the monitor
+follows changes made in Jenkins. An SCM polling spec is not treated as a
+schedule, because polling only builds when something changed.
 
-The schedule uses cron format with seconds:
+`alert_threshold_minutes` is how long after a scheduled time a build may start
+before that run counts as missed. A daily 02:00 job with a threshold of 60 is
+reported missed at 03:00 if no build started after 02:00.
+
+#### Schedule Format
+
+Schedules use Jenkins syntax, the same text you'd put in "Build periodically":
 
 ```
-┌─────── second (0 - 59)
-│ ┌─────── minute (0 - 59)
-│ │ ┌─────── hour (0 - 23)
-│ │ │ ┌─────── day of month (1 - 31)
-│ │ │ │ ┌─────── month (1 - 12)
-│ │ │ │ │ ┌─────── day of week (0 - 6) (Sunday to Saturday)
-│ │ │ │ │ │
-* * * * * *
+┌───────── minute (0 - 59)
+│ ┌───────── hour (0 - 23)
+│ │ ┌───────── day of month (1 - 31)
+│ │ │ ┌───────── month (1 - 12)
+│ │ │ │ ┌───────── day of week (0 - 7, 0 and 7 are Sunday, or MON-SUN)
+│ │ │ │ │
+* * * * *
 ```
+
+Supported: `H`, `H/15`, `H(0-29)`, `@hourly`, `@daily`, `@midnight`, `@weekly`,
+`@monthly`, `@yearly`, several lines (the job fires on any of them), `#` comments
+and a `TZ=Area/City` line.
+
+`H` is a per-job value Jenkins derives from a hash of the job name. The monitor
+can't compute Jenkins' hash, so it allows for the whole range `H` could pick:
+`H 2 * * *` is treated as "some time between 02:00 and 02:59", and the threshold
+counts from 02:59. Alerts for `H` jobs can come a little later, never falsely.
+
+Older 6-field specs with seconds first (`0 0 2 * * *`) still work.
 
 **Examples:**
-- `0 0 2 * * *` - Daily at 2:00 AM
-- `0 0 */2 * * *` - Every 2 hours
-- `0 30 9 * * 1-5` - 9:30 AM Monday through Friday
-- `0 0 0 1 * *` - First day of every month at midnight
+- `H 2 * * *` - once a day between 2:00 and 2:59
+- `0 */2 * * *` - every 2 hours
+- `30 9 * * 1-5` - 9:30 AM Monday through Friday
+- `0 0 1 * *` - first day of every month at midnight
+- `@daily` - once a day at a hashed time
 
 ### Step 4: Configure Email Alerts
 
@@ -100,11 +113,15 @@ To enable email alerts, add the `[email]` section:
 [email]
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
+smtp_security = "starttls"      # starttls (587), tls (465) or none (local relay only)
 from = "jenkins-monitor@example.com"
 to = ["team@example.com", "admin@example.com"]
 username = "your-email@gmail.com"
 password = "your-app-password"
 ```
+
+`username`/`password` can also come from `JENKINS_MONITOR_SMTP_USERNAME` and
+`JENKINS_MONITOR_SMTP_PASSWORD`. Without an `[email]` section, alerts are only logged.
 
 #### Gmail Configuration
 
@@ -125,18 +142,35 @@ Common SMTP settings:
 
 ```toml
 [general]
-log_level = "info"  # Options: error, warn, info, debug, trace
-check_interval_seconds = 60  # How often to check jobs
+log_level = "info"             # error, warn, info, debug, trace
+check_interval_seconds = 60    # how often to check jobs
+alert_on_check_error = true    # alert when the monitor can't check a job...
+error_alert_after = 3          # ...after this many failed checks in a row
+realert_minutes = 0            # repeat unresolved alerts every N minutes (0 = once)
+send_recovery = true           # email when a job is healthy again
 ```
+
+Unknown keys are rejected, so a typo fails at startup instead of being ignored.
 
 ## Running the Monitor
 
 ### Basic Usage
 
 ```bash
-# Make sure config.toml is in the current directory
-./target/release/jenkins-monitor
+# Check the config and see each job's schedule (reads schedules from Jenkins)
+./target/release/jenkins-monitor --config /path/to/config.toml --check
+
+# Run continuously
+./target/release/jenkins-monitor --config /path/to/config.toml
+
+# Run one check and exit, for cron or a Kubernetes CronJob
+./target/release/jenkins-monitor --once
 ```
+
+The config path defaults to `$JENKINS_MONITOR_CONFIG`, then `./config.toml`.
+With `--once` nothing is remembered between runs, so an open problem is
+alerted on every run and `error_alert_after` has no effect; prefer the
+long-running mode when you can.
 
 ### Run in Background
 
@@ -147,42 +181,36 @@ nohup ./target/release/jenkins-monitor > jenkins-monitor.log 2>&1 &
 
 ### Using with systemd (Linux)
 
-Create `/etc/systemd/system/jenkins-monitor.service`:
+`make install-service` installs the binary and `packaging/jenkins-monitor.service`,
+which runs `jenkins-monitor --config /etc/jenkins-monitor/config.toml` as the
+`jenkins-monitor` user. Put secrets in `/etc/jenkins-monitor/env` (chmod 600):
 
-```ini
-[Unit]
-Description=Jenkins Monitor
-After=network.target
-
-[Service]
-Type=simple
-User=jenkins-monitor
-WorkingDirectory=/opt/jenkins-monitor
-ExecStart=/opt/jenkins-monitor/jenkins-monitor
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+```bash
+JENKINS_MONITOR_JENKINS_PASSWORD=your-api-token
+JENKINS_MONITOR_SMTP_PASSWORD=your-app-password
 ```
 
 Then:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable jenkins-monitor
-sudo systemctl start jenkins-monitor
+sudo systemctl enable --now jenkins-monitor
 sudo systemctl status jenkins-monitor
 ```
 
 ## Understanding Alerts
 
-The monitor will alert in two main cases:
+A job needs attention when:
 
-- The job is overdue (it has not run when expected according to its schedule and configured threshold).
-- The job's most recent build finished with a non-success status (e.g. FAILURE, UNSTABLE, ABORTED) — this is treated as an immediate alert condition. If the most recent build is still running (no result yet), it is not considered a failure.
+- **Missed run:** a scheduled time plus `alert_threshold_minutes` has passed and no build started after that scheduled time.
+- **Never built:** a run was due and the job has no builds at all.
+- **Failed:** the last *completed* build finished with anything other than SUCCESS (FAILURE, UNSTABLE, ABORTED...). A build still running doesn't hide this.
+- **Check error:** the monitor couldn't check the job (Jenkins unreachable, 404, bad credentials, unreadable schedule) for `error_alert_after` checks in a row.
 
-You can tune the alert threshold per-job using `alert_threshold_minutes` in `config.toml`. The scheduler-derived schedule (from Jenkins `config.xml` or the explicit `schedule` in `config.toml`) is used to determine expected run times.
+Each problem is emailed once, and again every `realert_minutes` if you set it.
+When the job is healthy again you get a "recovered" email. A new failed build
+is a new problem; a job stuck without running is one problem however many
+runs it misses.
 
 ## Triggering builds from the command line
 
@@ -232,35 +260,20 @@ If the script detects a missing job it will:
 Use `DRY_RUN=1` to preview the actions without making any network requests.
 
 
-### When Alerts Are Sent
-
-An alert is sent when:
-1. A job hasn't run in longer than its `alert_threshold_minutes`
-2. The job was expected to run based on its schedule
-3. The monitoring check detected the missed execution
-
 ### Alert Email Format
 
-Alerts include:
-- Job name
-- Description of the issue
-- Timestamp of the alert
-- Jenkins server URL
-
-Example:
 ```
-Subject: Jenkins Monitor Alert: nightly-build
+Subject: Jenkins Monitor: 'nightly-build' needs attention
 
-Jenkins Monitor Alert
+Jenkins Monitor alert for job 'nightly-build'
 
-Job: nightly-build
+- Missed scheduled run at 2025-12-06 02:00 UTC. Last build was #41 at 2025-12-05 02:13 UTC.
 
-Job hasn't run within expected schedule.
-Expected schedule: 0 0 2 * * *
-Alert threshold: 90 minutes
-
-Time: 2025-12-06 03:45:00 UTC
-Jenkins URL: https://jenkins.example.com
+Schedule: H 2 * * *
+Time zone: UTC
+Threshold: 60 minutes
+Job: https://jenkins.example.com/job/nightly-build
+Checked: 2025-12-06 04:00:00 UTC
 ```
 
 ## Monitoring the Monitor
@@ -297,9 +310,10 @@ tail -f jenkins-monitor.log
 
 ## Troubleshooting
 
-### "Cannot find config file"
+### "cannot read config file"
 
-Make sure `config.toml` is in the same directory where you're running the command.
+Pass the path with `--config`, set `JENKINS_MONITOR_CONFIG`, or run from the
+directory that holds `config.toml`.
 
 ### "Failed to fetch job info from Jenkins"
 
@@ -318,23 +332,29 @@ Make sure `config.toml` is in the same directory where you're running the comman
 
 ### Job Always Shows as Missed
 
-- Verify the cron schedule matches when the job actually runs in Jenkins
-- Check the `alert_threshold_minutes` is appropriate for the schedule
-- Use `log_level = "debug"` to see detailed timing information
+- Run with `--check` to see the schedule the monitor is using
+- Make sure `jenkins.timezone` matches the Jenkins controller's time zone
+- Check the `alert_threshold_minutes` is long enough for queue time
+- Use `log_level = "debug"` to see each request
+
+### "the job has no timer trigger in Jenkins"
+
+The job has no "Build periodically" trigger (perhaps it's triggered by SCM
+polling or another job). Set `schedule` for it in `config.toml`.
 
 ## Best Practices
 
-1. **Start Simple**: Monitor 1-2 jobs first to verify configuration
-2. **Set Appropriate Thresholds**: Set `alert_threshold_minutes` to ~1.5x the schedule interval
+1. **Start Simple**: Monitor 1-2 jobs first and run `--check`
+2. **Set Appropriate Thresholds**: The threshold is the delay you'll tolerate after each scheduled time, not the interval between runs
 3. **Use API Tokens**: Never use your actual password in the config
 4. **Regular Testing**: Manually test that alerts work
 5. **Monitor the Monitor**: Ensure the monitor itself is running reliably
 
 ## Security Considerations
 
-- Store `config.toml` with restricted permissions: `chmod 600 config.toml`
+- Store `config.toml` with restricted permissions: `chmod 600 config.toml` (the monitor warns if it's world-readable)
+- Or keep secrets out of it with the `JENKINS_MONITOR_*` environment variables; the systemd unit reads them from `/etc/jenkins-monitor/env`
 - Use Jenkins API tokens instead of passwords
-- Consider using environment variables for sensitive data (future feature)
 - Keep the Jenkins user's permissions minimal (read-only is sufficient)
 
 ## Examples
@@ -344,8 +364,8 @@ Make sure `config.toml` is in the same directory where you're running the comman
 ```toml
 [[job]]
 name = "nightly-build"
-schedule = "0 0 2 * * *"  # 2 AM daily
-alert_threshold_minutes = 90
+schedule = "H 2 * * *"   # once between 2:00 and 2:59
+alert_threshold_minutes = 60
 ```
 
 ### Example 2: Monitor Hourly Health Checks
@@ -353,8 +373,8 @@ alert_threshold_minutes = 90
 ```toml
 [[job]]
 name = "health-check"
-schedule = "0 0 * * * *"  # Every hour
-alert_threshold_minutes = 75
+schedule = "0 * * * *"   # on the hour
+alert_threshold_minutes = 15
 ```
 
 ### Example 3: Monitor Weekly Reports
@@ -362,8 +382,8 @@ alert_threshold_minutes = 75
 ```toml
 [[job]]
 name = "weekly-report"
-schedule = "0 0 8 * * 1"  # Monday 8 AM
-alert_threshold_minutes = 600  # 10 hours
+schedule = "0 8 * * 1"   # Monday 8 AM
+alert_threshold_minutes = 120
 ```
 
 ## Getting Help

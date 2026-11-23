@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
@@ -14,50 +17,32 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked
 
       - name: Build release
-        run: |
-          cargo build --release --locked
+        run: cargo build --release --locked
 
       - name: Install cargo-deb
-        run: |
-          cargo install cargo-deb --version "^1.25.0" || true
+        run: cargo install cargo-deb --locked
 
       - name: Build .deb package
-        run: |
-          cargo deb --no-build || true
+        run: cargo deb --no-build
 
       - name: Create tarball of binary
         run: |
           mkdir -p release
           tar -C target/release -czf release/jenkins-monitor-${{ github.ref_name }}-linux-amd64.tar.gz jenkins-monitor
+          cp target/debian/*.deb release/
 
       - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          body: "Release ${{ github.ref_name }} built by CI"
-          draft: false
-          prerelease: false
-
-      - name: Upload release binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: release/jenkins-monitor-${{ github.ref_name }}-linux-amd64.tar.gz
-          asset_name: jenkins-monitor-${{ github.ref_name }}-linux-amd64.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload .deb package (if exists)
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: target/debian/*.deb
-          asset_name: jenkins-monitor-${{ github.ref_name }}.deb
-          asset_content_type: application/vnd.debian.binary-package
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release/*
