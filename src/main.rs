@@ -96,7 +96,6 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            log::error!("{:#}", e);
             eprintln!("error: {:#}", e);
             ExitCode::FAILURE
         }

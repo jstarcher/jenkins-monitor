@@ -17,8 +17,10 @@
 //! carried as extra "slack" minutes. The monitor waits for that slack before
 //! deciding a run was missed, so `H` can make an alert later, never falsely.
 //!
-//! Specs with 6 or 7 fields are treated as `cron`-crate syntax (seconds
-//! first, Sunday = 1), which is what earlier versions of this tool accepted.
+//! Specs with 6 or 7 fields (seconds first) are still accepted, as earlier
+//! versions of this tool required them. Their day of week is read the way
+//! the old docs described it (0-6, Sunday = 0), which the old code got
+//! wrong: it passed it to the `cron` crate unchanged.
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -135,7 +137,9 @@ fn to_cron_expression(line: &str) -> Result<(String, i64)> {
             if fields.iter().any(|f| f.contains('H')) {
                 bail!("'H' is only supported in 5-field Jenkins specs");
             }
-            Ok((fields.join(" "), 0))
+            let mut out: Vec<String> = fields.iter().map(|f| f.to_string()).collect();
+            out[5] = convert_dow(&out[5])?;
+            Ok((out.join(" "), 0))
         }
         n => bail!(
             "expected 5 fields (Jenkins) or 6-7 fields (with seconds), found {}",
@@ -415,12 +419,16 @@ mod tests {
     }
 
     #[test]
-    fn six_field_specs_keep_old_meaning() {
+    fn six_field_specs_still_work() {
         let s = parse("0 0 2 * * *");
         assert_eq!(
             s.latest_due(utc(2025, 12, 7, 12, 0), 90),
             Some(utc(2025, 12, 7, 2, 0))
         );
+        // The old docs' "Monday 8 AM" example: 1 is Monday, as documented.
+        let monday = parse("0 0 8 * * 1");
+        let due = monday.latest_due(utc(2025, 12, 10, 12, 0), 0).unwrap();
+        assert_eq!(due, utc(2025, 12, 8, 8, 0));
     }
 
     #[test]
