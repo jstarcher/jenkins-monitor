@@ -3,7 +3,7 @@ name = "jenkins-monitor"
 version = "0.2.0"
 authors = ["Jordan Starcher <jstarcher@gmail.com>"]
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 description = "Alerts when scheduled Jenkins jobs miss a run or fail"
 
 [[bin]]
